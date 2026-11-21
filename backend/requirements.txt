@@ -1,0 +1,7 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+scapy>=2.5
+python-nmap>=0.7.1
+requests>=2.31
+websockets>=12.0
+python-dotenv>=1.0
