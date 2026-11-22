@@ -4,6 +4,22 @@
 
 NetPulse discovers devices on your local network, scans their open ports, traces routes to remote hosts with geolocation for each hop, and monitors live traffic. A Python backend does the network work, and a React dashboard draws it as a live topology graph, traffic charts and a world map.
 
+![NetPulse demo: live dashboard, topology, traceroute map and port scan](docs/demo.gif)
+
+## Screenshots
+
+| Dashboard | Topology |
+|---|---|
+| [![Dashboard with topology graph, live traffic chart and device table](docs/screenshots/dashboard.png)](docs/screenshots/dashboard.png) | [![Topology page with device detail panel](docs/screenshots/topology.png)](docs/screenshots/topology.png) |
+| **Live overview:** the topology graph, real-time bandwidth, protocol breakdown and discovered devices | **Force-directed LAN map:** click a device for its details, or jump to a port scan or traceroute |
+
+| Traceroute | Port Scanner |
+|---|---|
+| [![Traceroute world map with animated hop arcs](docs/screenshots/traceroute.png)](docs/screenshots/traceroute.png) | [![Port scanner results table](docs/screenshots/ports.png)](docs/screenshots/ports.png) |
+| **Route map:** each hop is geolocated and joined by animated arcs, with RTT per hop | **nmap top-100 scan:** color-coded results, with one-click scans of discovered devices |
+
+<sub>Captured from a real home network. MAC addresses and hostnames are partially masked.</sub>
+
 ## Quick start
 
 From the project folder, run:
@@ -62,6 +78,7 @@ NetPulse/
 │   │   └── index.css        # Design system (CSS variables)
 │   ├── Dockerfile           # Node 20 build → nginx
 │   └── nginx.conf
+├── docs/                    # README screenshots and demo GIF
 ├── docker-compose.yml
 ├── run.py                   # One-command launcher (backend + frontend)
 └── README.md
