@@ -6,6 +6,8 @@ NetPulse discovers devices on your local network, scans their open ports, traces
 
 ![NetPulse demo: live dashboard, topology, traceroute map and port scan](docs/demo.gif)
 
+<sub>The traceroute wait is sped up in this GIF. 🎬 [Download the full demo video (MP4, 1 min)](docs/screenshots/LiveDemo.mp4)</sub>
+
 ## Screenshots
 
 | Dashboard | Topology |
@@ -18,7 +20,7 @@ NetPulse discovers devices on your local network, scans their open ports, traces
 | [![Traceroute world map with animated hop arcs](docs/screenshots/traceroute.png)](docs/screenshots/traceroute.png) | [![Port scanner results table](docs/screenshots/ports.png)](docs/screenshots/ports.png) |
 | **Route map:** each hop is geolocated and joined by animated arcs, with RTT per hop | **nmap top-100 scan:** color-coded results, with one-click scans of discovered devices |
 
-<sub>Captured from a real home network. MAC addresses and hostnames are partially masked.</sub>
+<sub>Captured live from a real home network.</sub>
 
 ## Quick start
 
