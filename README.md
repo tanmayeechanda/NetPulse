@@ -4,6 +4,34 @@
 
 NetPulse discovers devices on your local network, scans their open ports, traces routes to remote hosts with geolocation for each hop, and monitors live traffic. A Python backend does the network work, and a React dashboard draws it as a live topology graph, traffic charts and a world map.
 
+## Quick start
+
+From the project folder, run:
+
+```bash
+python run.py
+```
+
+This one command:
+
+1. installs any missing backend (pip) and frontend (npm) dependencies; this happens only on the first run or after `package-lock.json` changes
+2. starts the backend on **http://localhost:8000** and the frontend on **http://localhost:5173**
+3. opens the dashboard in your browser once both are ready
+
+Press **Ctrl+C** to stop both servers.
+
+**Prerequisites:** Python 3.10+, Node.js 18+ and, for the Port Scanner, [nmap](https://nmap.org/download). On Windows, also install [Npcap](https://npcap.com) for network discovery and live traffic. See [Privileges and system dependencies](#privileges-and-system-dependencies) for details.
+
+| Option | Effect |
+|---|---|
+| `--no-browser` | Don't open a browser tab |
+| `--skip-install` | Skip the dependency check (faster restarts) |
+| `--reinstall` | Force `pip install` and `npm install` |
+
+If the backend is already running on port 8000, `run.py` reuses it and only starts the frontend.
+
+> **Linux/macOS:** ARP scanning and packet capture need root. Use `sudo python3 run.py`, or run without sudo and accept the ping-sweep fallback, which has no live traffic.
+
 ## Tech stack
 
 - **Backend:** Python 3.11, FastAPI, WebSockets
@@ -35,6 +63,7 @@ NetPulse/
 │   ├── Dockerfile           # Node 20 build → nginx
 │   └── nginx.conf
 ├── docker-compose.yml
+├── run.py                   # One-command launcher (backend + frontend)
 └── README.md
 ```
 
@@ -55,7 +84,9 @@ Error codes: `400` for bad input, `503` when the operation needs privileges or t
 
 > **Protocol counts:** DNS and HTTP are application-layer tags, so a DNS packet is counted under both `UDP` and `DNS`. HTTP is detected by port (80/8000/8080) or by a request/response line in the payload. HTTPS traffic is encrypted and counts as `TCP` only.
 
-## Running locally
+## Running the backend on its own
+
+`python run.py` is the easiest way to start everything. To start only the backend:
 
 ```bash
 cd backend
@@ -96,9 +127,9 @@ The app falls back when it lacks privileges. Network discovery switches to a pin
 
 Nodes pulse when they appear in the live traffic stream. The network scan runs once on load and is shared across pages; use **Rescan network** to refresh it.
 
-### Run the frontend
+### Run the frontend on its own
 
-Start the backend first, then:
+`python run.py` starts it for you. To start only the frontend, start the backend first, then:
 
 ```bash
 cd frontend
@@ -110,6 +141,8 @@ Open **http://localhost:5173**. The API address defaults to `http://localhost:80
 
 ## Running with Docker Compose
 
+Docker is mainly for deploying on a Linux machine. On Windows/macOS, use `python run.py` instead (see the note below).
+
 ```bash
 docker compose up --build
 ```
@@ -118,6 +151,8 @@ docker compose up --build
 - Backend API: **http://localhost:8000**
 
 The container uses `network_mode: host` and adds `NET_RAW`/`NET_ADMIN` so it can see real interfaces for ARP scans and sniffing. Host networking only works fully on **Linux** hosts. On Docker Desktop (Windows/macOS) the container sees the VM's network, not your LAN.
+
+> **Troubleshooting:** a build may finish suspiciously fast and then fail with `"/app/dist": not found`. That means Docker's build cache is corrupted (this can happen after Docker Desktop hangs). Run `docker builder prune -af` and build again.
 
 ## Examples
 
