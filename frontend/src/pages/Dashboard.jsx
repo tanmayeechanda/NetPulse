@@ -4,11 +4,13 @@ import PageHeader from "../components/PageHeader";
 import ScanControls from "../components/ScanControls";
 import TopologyGraph from "../components/TopologyGraph";
 import TrafficChart from "../components/TrafficChart";
+import { useBackend } from "../context/BackendContext";
 import { useNetwork } from "../context/NetworkContext";
 import { useTraffic } from "../context/TrafficContext";
 
 export default function Dashboard() {
   const { devices, loading, error } = useNetwork();
+  const { online } = useBackend();
   const { ipActivity } = useTraffic();
   const navigate = useNavigate();
   const openDevice = (d) => d && navigate(`/topology?ip=${encodeURIComponent(d.ip)}`);
@@ -18,7 +20,7 @@ export default function Dashboard() {
       <PageHeader title="Dashboard" subtitle="Your local network at a glance">
         <ScanControls />
       </PageHeader>
-      {error && <div className="alert">{error}</div>}
+      {error && online && <div className="alert">{error}</div>}
 
       <div className="dashboard-grid">
         <section className="hero section flush">

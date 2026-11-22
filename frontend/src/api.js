@@ -1,7 +1,14 @@
 import axios from "axios";
 
-export const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "");
-export const WS_TRAFFIC_URL = `${API_URL.replace(/^http/, "ws")}/ws/traffic`;
+// REACT_APP_API_URL comes from .env / docker-compose; VITE_API_URL is also accepted.
+export const API_URL = (
+  import.meta.env.REACT_APP_API_URL ||
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:8000"
+).replace(/\/$/, "");
+const WS_BASE = API_URL.replace(/^http/, "ws");
+export const WS_TRAFFIC_URL = `${WS_BASE}/ws/traffic`;
+export const WS_TRACEROUTE_URL = `${WS_BASE}/ws/traceroute`;
 
 const client = axios.create({ baseURL: API_URL });
 
@@ -33,6 +40,55 @@ export async function traceroute(target, maxHops = 30) {
     { timeout: 240_000 }
   );
   return data;
+}
+
+/**
+ * Stream a traceroute hop by hop over /ws/traceroute.
+ * Handlers: onStart(meta), onHop(hop), onLocating(count), onDone(result), onError(message).
+ * `onError` receives `{ connectionFailed: true }` as its second argument when the socket
+ * never opened, so callers can fall back to the REST endpoint.
+ * @returns {() => void} call to cancel
+ */
+export function traceRouteStream(target, maxHops, handlers) {
+  const ws = new WebSocket(WS_TRACEROUTE_URL);
+  let opened = false;
+  let finished = false;
+
+  ws.onopen = () => {
+    opened = true;
+    ws.send(JSON.stringify({ target, max_hops: maxHops }));
+  };
+  ws.onmessage = (event) => {
+    let msg;
+    try {
+      msg = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    if (msg.type === "start") handlers.onStart?.(msg);
+    else if (msg.type === "hop") handlers.onHop?.(msg.hop);
+    else if (msg.type === "locating") handlers.onLocating?.(msg.count);
+    else if (msg.type === "done") {
+      finished = true;
+      handlers.onDone?.(msg.result);
+    } else if (msg.type === "error") {
+      finished = true;
+      handlers.onError?.(msg.detail || "Traceroute failed", { connectionFailed: false });
+    }
+  };
+  ws.onclose = () => {
+    if (finished) return;
+    finished = true;
+    handlers.onError?.(
+      opened ? "Connection to the backend was lost" : `Cannot reach backend at ${API_URL}`,
+      { connectionFailed: !opened }
+    );
+  };
+
+  return () => {
+    finished = true;
+    ws.close();
+  };
 }
 
 /** One-off packet capture for `duration` seconds. */

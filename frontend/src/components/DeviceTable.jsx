@@ -1,4 +1,5 @@
 import { findGateway } from "../utils/format";
+import { SkeletonRows } from "./Skeleton";
 
 /** Table of discovered devices. Rows are clickable when `onSelect` is given. */
 export default function DeviceTable({ devices, loading, selectedIp, onSelect }) {
@@ -33,10 +34,11 @@ export default function DeviceTable({ devices, loading, selectedIp, onSelect }) 
               <td>{d.hostname || <span className="muted">unknown</span>}</td>
             </tr>
           ))}
-          {!devices.length && (
+          {!devices.length && loading && <SkeletonRows rows={4} widths={[8, "70%", "80%", "55%"]} />}
+          {!devices.length && !loading && (
             <tr>
               <td colSpan={4} className="empty">
-                {loading ? "Scanning network…" : "No devices discovered yet"}
+                No devices discovered yet
               </td>
             </tr>
           )}

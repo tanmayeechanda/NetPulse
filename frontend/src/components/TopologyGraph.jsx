@@ -1,11 +1,13 @@
 import * as d3 from "d3";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { findGateway } from "../utils/format";
+import { SkeletonGraph } from "./Skeleton";
 
 const RADIUS = { internet: 16, gateway: 20, hub: 14, device: 11 };
 
 /** Star topology: Internet — gateway — every other device. */
 function buildGraph(devices) {
+  if (!devices.length) return { nodes: [], links: [] }; // nothing to draw until a scan returns
   const gw = findGateway(devices);
   const hubId = gw ? gw.ip : "lan";
   const nodes = [{ id: "internet", role: "internet", label: "Internet", r: RADIUS.internet }];
@@ -161,7 +163,12 @@ export default function TopologyGraph({ devices, selectedIp, onSelect, ipActivit
   return (
     <div className="topology" ref={containerRef}>
       <svg ref={svgRef} className="topology-svg" role="img" aria-label="Network topology graph" />
-      {loading && !devices.length && <div className="overlay-msg">Discovering devices…</div>}
+      {loading && !devices.length && (
+        <>
+          <SkeletonGraph />
+          <div className="overlay-msg skeleton-caption">Discovering devices…</div>
+        </>
+      )}
       {!loading && !devices.length && <div className="overlay-msg muted">No devices yet. Run a scan.</div>}
       <div className="topology-legend">
         <span><i className="lg internet" />Internet</span>

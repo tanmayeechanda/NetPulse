@@ -3,11 +3,12 @@ import DeviceTable from "../components/DeviceTable";
 import PageHeader from "../components/PageHeader";
 import ScanControls from "../components/ScanControls";
 import TopologyGraph from "../components/TopologyGraph";
+import { useBackend } from "../context/BackendContext";
 import { useNetwork } from "../context/NetworkContext";
 import { useTraffic } from "../context/TrafficContext";
 import { findGateway } from "../utils/format";
 
-function DetailPanel({ device, devices, packets, onSelect }) {
+function DetailPanel({ device, devices, packets, onSelect, loading }) {
   if (!device) {
     return (
       <aside className="detail-panel">
@@ -18,7 +19,7 @@ function DetailPanel({ device, devices, packets, onSelect }) {
           <p className="muted">Select a node in the graph or a row below.</p>
         </section>
         <section className="section">
-          <DeviceTable devices={devices} onSelect={onSelect} />
+          <DeviceTable devices={devices} loading={loading} onSelect={onSelect} />
         </section>
       </aside>
     );
@@ -77,6 +78,7 @@ function DetailPanel({ device, devices, packets, onSelect }) {
 
 export default function Topology() {
   const { devices, loading, error } = useNetwork();
+  const { online } = useBackend();
   const { ipActivity } = useTraffic();
   const [params, setParams] = useSearchParams();
   const selectedIp = params.get("ip");
@@ -89,7 +91,7 @@ export default function Topology() {
       <PageHeader title="Topology" subtitle="Force-directed map of devices on your LAN">
         <ScanControls />
       </PageHeader>
-      {error && <div className="alert">{error}</div>}
+      {error && online && <div className="alert">{error}</div>}
       <div className="topology-layout">
         <section className="section flush topology-main">
           <TopologyGraph
@@ -100,7 +102,13 @@ export default function Topology() {
             onSelect={select}
           />
         </section>
-        <DetailPanel device={selected} devices={devices} packets={selected ? ipActivity.get(selected.ip) : null} onSelect={select} />
+        <DetailPanel
+          device={selected}
+          devices={devices}
+          loading={loading}
+          packets={selected ? ipActivity.get(selected.ip) : null}
+          onSelect={select}
+        />
       </div>
     </div>
   );

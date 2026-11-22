@@ -4,6 +4,9 @@ For a domain/IP returns hops: {hop_number, ip, hostname, rtt_ms, geo: {lat, lon,
 Probes are sent with scapy (ICMP echo with increasing TTL). If raw sockets are
 unavailable, falls back to the system `tracert`/`traceroute` command.
 Geo data comes from the ip-api.com batch endpoint (free tier, HTTP only, 15 req/min).
+
+`trace_events()` yields progress events as each hop is discovered (used by the
+/ws/traceroute stream); `traceroute()` runs it to completion (used by the REST API).
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import re
 import socket
 import subprocess
 import time
+from collections.abc import Callable, Iterator
 
 import requests
 
@@ -34,25 +38,24 @@ def _resolve(target: str) -> str:
         raise ValueError(f"Could not resolve {target!r}") from exc
 
 
-def _scapy_trace(dst_ip: str, max_hops: int, timeout: float) -> list[dict]:
+# ---------------------------------------------------------------------------
+# Probing
+# ---------------------------------------------------------------------------
+def _scapy_probe(dst_ip: str, ttl: int, timeout: float) -> tuple[dict, bool]:
+    """Send one ICMP echo with the given TTL. Returns (hop, reached_destination)."""
     from scapy.all import ICMP, IP, sr1
 
-    hops: list[dict] = []
-    for ttl in range(1, max_hops + 1):
-        pkt = IP(dst=dst_ip, ttl=ttl) / ICMP(id=0x4E50, seq=ttl)
-        start = time.perf_counter()
-        reply = sr1(pkt, timeout=timeout, verbose=False)
-        rtt = round((time.perf_counter() - start) * 1000, 2)
-        if reply is None:
-            hops.append({"hop_number": ttl, "ip": None, "rtt_ms": None})
-            continue
-        # Prefer the kernel/pcap timestamps when available for accuracy.
-        if getattr(reply, "time", None) and getattr(pkt, "sent_time", None):
-            rtt = round((reply.time - pkt.sent_time) * 1000, 2)
-        hops.append({"hop_number": ttl, "ip": reply.src, "rtt_ms": rtt})
-        if reply.src == dst_ip or (reply.haslayer(ICMP) and reply[ICMP].type == 0):
-            break
-    return hops
+    pkt = IP(dst=dst_ip, ttl=ttl) / ICMP(id=0x4E50, seq=ttl)
+    start = time.perf_counter()
+    reply = sr1(pkt, timeout=timeout, verbose=False)
+    rtt = round((time.perf_counter() - start) * 1000, 2)
+    if reply is None:
+        return {"hop_number": ttl, "ip": None, "rtt_ms": None}, False
+    # Prefer the kernel/pcap timestamps when available for accuracy.
+    if getattr(reply, "time", None) and getattr(pkt, "sent_time", None):
+        rtt = round((reply.time - pkt.sent_time) * 1000, 2)
+    reached = reply.src == dst_ip or (reply.haslayer(ICMP) and reply[ICMP].type == 0)
+    return {"hop_number": ttl, "ip": reply.src, "rtt_ms": rtt}, reached
 
 
 _HOP_LINE = re.compile(r"^\s*(\d+)\s+(.*)$")
@@ -60,36 +63,44 @@ _RTT = re.compile(r"(<?\d+(?:\.\d+)?)\s*ms")
 _IPV4 = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
 
 
-def _system_trace(dst_ip: str, max_hops: int, timeout: float) -> list[dict]:
+def _system_hops(dst_ip: str, max_hops: int, timeout: float, should_stop: Callable[[], bool]) -> Iterator[dict]:
+    """Run the OS traceroute and yield hops as its output lines arrive."""
     if platform.system() == "Windows":
         cmd = ["tracert", "-d", "-h", str(max_hops), "-w", str(int(timeout * 1000)), dst_ip]
     else:
         cmd = ["traceroute", "-n", "-q", "1", "-m", str(max_hops), "-w", str(max(1, int(timeout))), dst_ip]
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=max_hops * (timeout * 3 + 1)).stdout
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
     except FileNotFoundError as exc:
         raise CapabilityError(f"{cmd[0]} not available and raw sockets not permitted") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise TimeoutError("traceroute timed out") from exc
 
-    hops: list[dict] = []
-    for line in out.splitlines():
-        m = _HOP_LINE.match(line)
-        if not m:
-            continue
-        rest = m.group(2)
-        ip_m = _IPV4.search(rest)
-        rtts = [float(r.lstrip("<")) for r in _RTT.findall(rest)]
-        hops.append(
-            {
+    deadline = time.time() + max_hops * (timeout * 3 + 1)
+    try:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            if should_stop():
+                break
+            if time.time() > deadline:
+                raise TimeoutError("traceroute timed out")
+            m = _HOP_LINE.match(line)
+            if not m:
+                continue
+            rest = m.group(2)
+            ip_m = _IPV4.search(rest)
+            rtts = [float(r.lstrip("<")) for r in _RTT.findall(rest)]
+            yield {
                 "hop_number": int(m.group(1)),
                 "ip": ip_m.group(1) if ip_m else None,
                 "rtt_ms": round(min(rtts), 2) if rtts else None,
             }
-        )
-    return hops
+    finally:
+        if proc.poll() is None:
+            proc.kill()
 
 
+# ---------------------------------------------------------------------------
+# Enrichment
+# ---------------------------------------------------------------------------
 def _geolocate(ips: list[str]) -> dict[str, dict]:
     public = sorted({ip for ip in ips if ip and not is_private_ip(ip)})
     geo: dict[str, dict] = {}
@@ -111,33 +122,91 @@ def _geolocate(ips: list[str]) -> dict[str, dict]:
     return geo
 
 
-def traceroute(target: str, max_hops: int = 30, timeout: float = 2.0) -> dict:
-    """Blocking — call from a worker thread."""
+def _enrich(hops: list[dict]) -> list[dict]:
+    ips = [h["ip"] for h in hops if h["ip"]]
+    names = reverse_dns_many(ips)
+    geo = _geolocate(ips)
+    return [
+        {
+            "hop_number": h["hop_number"],
+            "ip": h["ip"],
+            "hostname": names.get(h["ip"]) if h["ip"] else None,
+            "rtt_ms": h["rtt_ms"],
+            "geo": geo.get(h["ip"]) if h["ip"] else None,
+        }
+        for h in hops
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+def trace_events(
+    target: str,
+    max_hops: int = 30,
+    timeout: float = 2.0,
+    should_stop: Callable[[], bool] = lambda: False,
+) -> Iterator[dict]:
+    """Run a traceroute, yielding progress events. Blocking — iterate in a worker thread.
+
+    Events, in order:
+      {"type": "start",    "target", "destination_ip", "method", "max_hops"}
+      {"type": "hop",      "hop": {hop_number, ip, rtt_ms}}           (one per hop)
+      {"type": "locating", "count": <hops to look up>}
+      {"type": "done",     "result": <same shape as traceroute()>}
+    """
     dst_ip = _resolve(target)
-    method = "scapy"
+    hops: list[dict] = []
+
+    # Probe TTL 1 first: it tells us whether raw sockets work before announcing a method.
     try:
-        hops = _scapy_trace(dst_ip, max_hops, timeout)
+        first, reached = _scapy_probe(dst_ip, 1, timeout)
+        method = "scapy"
     except Exception as exc:
         if is_permission_error(exc):
             log.info("Raw sockets unavailable; using system traceroute")
         else:
             log.warning("scapy traceroute failed (%s); using system traceroute", exc)
-        method = "system"
-        hops = _system_trace(dst_ip, max_hops, timeout)
+        method, first, reached = "system", None, False
 
-    ips = [h["ip"] for h in hops if h["ip"]]
-    names = reverse_dns_many(ips)
-    geo = _geolocate(ips)
-    for h in hops:
-        h["hostname"] = names.get(h["ip"]) if h["ip"] else None
-        h["geo"] = geo.get(h["ip"]) if h["ip"] else None
+    yield {"type": "start", "target": target, "destination_ip": dst_ip, "method": method, "max_hops": max_hops}
 
-    return {
-        "target": target,
-        "destination_ip": dst_ip,
-        "method": method,
-        "reached": bool(hops) and hops[-1]["ip"] == dst_ip,
-        "hops": [
-            {k: h[k] for k in ("hop_number", "ip", "hostname", "rtt_ms", "geo")} for h in hops
-        ],
+    if method == "scapy":
+        hops.append(first)
+        yield {"type": "hop", "hop": first}
+        ttl = 1
+        while not reached and ttl < max_hops and not should_stop():
+            ttl += 1
+            hop, reached = _scapy_probe(dst_ip, ttl, timeout)
+            hops.append(hop)
+            yield {"type": "hop", "hop": hop}
+    else:
+        for hop in _system_hops(dst_ip, max_hops, timeout, should_stop):
+            hops.append(hop)
+            yield {"type": "hop", "hop": hop}
+
+    if should_stop():
+        return
+
+    yield {"type": "locating", "count": sum(1 for h in hops if h["ip"])}
+    enriched = _enrich(hops)
+    yield {
+        "type": "done",
+        "result": {
+            "target": target,
+            "destination_ip": dst_ip,
+            "method": method,
+            "reached": bool(enriched) and enriched[-1]["ip"] == dst_ip,
+            "hops": enriched,
+        },
     }
+
+
+def traceroute(target: str, max_hops: int = 30, timeout: float = 2.0) -> dict:
+    """Run a full traceroute and return the final result. Blocking — call from a worker thread."""
+    result: dict | None = None
+    for event in trace_events(target, max_hops, timeout):
+        if event["type"] == "done":
+            result = event["result"]
+    assert result is not None
+    return result

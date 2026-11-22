@@ -18,7 +18,7 @@ import socket
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
-from utils import CapabilityError, is_permission_error, reverse_dns_many
+from utils import CapabilityError, is_permission_error, max_scan_threads, reverse_dns_many, scan_interface
 
 log = logging.getLogger(__name__)
 
@@ -39,9 +39,9 @@ def _local_ip() -> str:
 def detect_subnet() -> str:
     """Determine the local subnet in CIDR form.
 
-    Priority: NETPULSE_SUBNET env var > scapy routing table for scapy's default
-    interface > /24 around the local IP. scapy's default interface is preferred over
-    the OS outbound route because VPNs (e.g. WARP, WireGuard) hijack the latter.
+    Priority: NETPULSE_SUBNET env var > scapy routing table for SCAN_INTERFACE (or
+    scapy's default interface) > /24 around the local IP. scapy's interface is preferred
+    over the OS outbound route because VPNs (e.g. WARP, WireGuard) hijack the latter.
     """
     env = os.getenv("NETPULSE_SUBNET")
     if env:
@@ -51,7 +51,7 @@ def detect_subnet() -> str:
     try:
         from scapy.all import conf
 
-        iface_ip = getattr(conf.iface, "ip", None)
+        iface_ip = getattr(scan_interface() or conf.iface, "ip", None)
         local_ip = iface_ip if iface_ip and iface_ip != "0.0.0.0" else _local_ip()
         for net, mask, _gw, _iface, addr, *_ in conf.route.routes:
             if addr != local_ip or net == 0 or mask in (0, 0xFFFFFFFF):
@@ -78,11 +78,13 @@ def _validate(subnet: str) -> ipaddress.IPv4Network:
 def _arp_scan(net: ipaddress.IPv4Network, timeout: float) -> dict[str, str]:
     from scapy.all import ARP, Ether, srp
 
+    iface = scan_interface()
     answered, _ = srp(
         Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=str(net)),
         timeout=timeout,
         retry=1,
         verbose=False,
+        **({"iface": iface} if iface else {}),
     )
     return {rcv.psrc: rcv.hwsrc.lower() for _, rcv in answered}
 
@@ -121,7 +123,7 @@ def _read_arp_cache() -> dict[str, str]:
 
 def _ping_sweep(net: ipaddress.IPv4Network) -> dict[str, str | None]:
     hosts = [str(h) for h in net.hosts()]
-    with ThreadPoolExecutor(max_workers=64) as pool:
+    with ThreadPoolExecutor(max_workers=max_scan_threads()) as pool:
         alive = [ip for ip, up in zip(hosts, pool.map(_ping, hosts)) if up]
     arp = _read_arp_cache()
     return {ip: arp.get(ip) for ip in alive}
@@ -146,7 +148,8 @@ def scan_network(subnet: str | None = None, timeout: float = 2.0) -> dict:
     try:
         from scapy.all import conf
 
-        candidates.append((getattr(conf.iface, "ip", None), getattr(conf.iface, "mac", None)))
+        iface = scan_interface() or conf.iface
+        candidates.append((getattr(iface, "ip", None), getattr(iface, "mac", None)))
     except Exception:
         pass
     try:

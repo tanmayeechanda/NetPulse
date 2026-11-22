@@ -1,12 +1,81 @@
-# NetPulse
+<h1 align="center">NetPulse</h1>
 
-**Real-Time Network Topology Visualizer & Analyzer**
+<p align="center"><strong>See your network. Understand your traffic.</strong></p>
 
-NetPulse discovers devices on your local network, scans their open ports, traces routes to remote hosts with geolocation for each hop, and monitors live traffic. A Python backend does the network work, and a React dashboard draws it as a live topology graph, traffic charts and a world map.
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black">
+  <img alt="D3.js" src="https://img.shields.io/badge/D3.js-7-F9A03C?logo=d3&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
+</p>
+
+NetPulse is a real-time network topology visualizer and analyzer. It discovers the devices on your LAN, maps them as a live force-directed graph, scans their open ports, traces the route your packets take across the internet hop by hop, and streams live traffic statistics to a dashboard.
 
 ![NetPulse demo: live dashboard, topology, traceroute map and port scan](docs/demo.gif)
 
 <sub>The traceroute wait is sped up in this GIF. 🎬 [Download the full demo video (MP4, 1 min)](docs/screenshots/LiveDemo.mp4)</sub>
+
+## Features
+
+- **Device discovery:** ARP-scans the local subnet for each device's IP, MAC and hostname. Falls back to an ICMP ping sweep when raw sockets aren't available.
+- **Live topology graph:** a D3.js force-directed map of your LAN. Drag, zoom, and click a device for details, and devices pulse when they show up in live traffic.
+- **Real-time traffic monitor:** packet capture with Scapy, streamed over WebSocket every 2 seconds: bandwidth, protocol breakdown (TCP/UDP/ICMP/DNS/HTTP) and top talkers.
+- **Streaming traceroute:** TTL-based probing, with hops streamed to the UI as each router answers. Every hop is geolocated and drawn on a world map with animated arcs.
+- **Port scanner:** an nmap scan of the 100 most common TCP ports, with color-coded results. IPs are validated before any request is sent.
+- **Resilient UI:** skeleton loaders on every request, a step-by-step traceroute progress indicator, and an offline banner that recovers on its own when the backend comes back.
+- **Privilege-aware fallbacks:** works without root or admin where possible (ping sweep, system `traceroute`), with clear errors where it can't.
+- **One-command startup:** `docker-compose up --build`, or `python run.py` without Docker.
+
+## Architecture
+
+```
+[React UI] <──REST / WebSocket──> [FastAPI] <──packets / syscalls──> [Scapy / Nmap / Socket]
+```
+
+```
+┌──────────────────────────────────────────────────┐
+│  React UI          Vite · D3.js · Recharts       │  :3000 (Docker) / :5173 (dev)
+│  Dashboard · Topology · Traceroute · Ports       │
+└──────────────┬────────────────────────▲──────────┘
+  REST (axios) │                        │ WebSocket
+  scan · ports │                        │ /ws/traffic     (stats every 2s)
+               ▼                        │ /ws/traceroute  (hop by hop)
+┌───────────────────────────────────────┴──────────┐
+│  FastAPI   (uvicorn, async)                      │  :8000
+│  scanner · port_scanner · traceroute · traffic   │
+│  blocking network work runs in worker threads    │
+└───────┬──────────────────┬──────────────────┬────┘
+        ▼                  ▼                  ▼
+┌───────────────┐  ┌───────────────┐  ┌──────────────────┐
+│    Scapy      │  │     Nmap      │  │     Socket       │
+│ ARP scan      │  │ top-100 TCP   │  │ reverse DNS      │
+│ ICMP TTL      │  │ port scan     │  │ ping / tracert   │
+│ sniffing      │  │               │  │ fallbacks        │
+└───────────────┘  └───────────────┘  └──────────────────┘
+                                              │
+                                     ip-api.com (hop geolocation)
+```
+
+## Quick start
+
+```bash
+git clone https://github.com/tanmayeechanda/NetPulse.git
+cd NetPulse
+cp .env.example .env        # optional: every setting has a default
+docker-compose up --build
+```
+
+Open **http://localhost:3000**. The API runs on **http://localhost:8000**, with interactive docs at `/docs`.
+
+> **Windows / macOS:** Docker Desktop runs containers inside a virtual machine, so discovery and packet capture see that VM's network instead of your Wi-Fi. Turn on **Settings → Resources → Network → Enable host networking** to reach the API, or, for real LAN data, run natively instead:
+>
+> ```bash
+> python run.py
+> ```
+>
+> This installs any missing dependencies, starts the backend (:8000) and frontend (:5173), and opens your browser. It needs Python 3.10+, Node.js 18+, [nmap](https://nmap.org/download) and, on Windows, [Npcap](https://npcap.com). Options: `--no-browser`, `--skip-install`, `--reinstall`.
 
 ## Screenshots
 
@@ -22,158 +91,54 @@ NetPulse discovers devices on your local network, scans their open ports, traces
 
 <sub>Captured live from a real home network.</sub>
 
-## Quick start
-
-From the project folder, run:
-
-```bash
-python run.py
-```
-
-This one command:
-
-1. installs any missing backend (pip) and frontend (npm) dependencies; this happens only on the first run or after `package-lock.json` changes
-2. starts the backend on **http://localhost:8000** and the frontend on **http://localhost:5173**
-3. opens the dashboard in your browser once both are ready
-
-Press **Ctrl+C** to stop both servers.
-
-**Prerequisites:** Python 3.10+, Node.js 18+ and, for the Port Scanner, [nmap](https://nmap.org/download). On Windows, also install [Npcap](https://npcap.com) for network discovery and live traffic. See [Privileges and system dependencies](#privileges-and-system-dependencies) for details.
-
-| Option | Effect |
-|---|---|
-| `--no-browser` | Don't open a browser tab |
-| `--skip-install` | Skip the dependency check (faster restarts) |
-| `--reinstall` | Force `pip install` and `npm install` |
-
-If the backend is already running on port 8000, `run.py` reuses it and only starts the frontend.
-
-> **Linux/macOS:** ARP scanning and packet capture need root. Use `sudo python3 run.py`, or run without sudo and accept the ping-sweep fallback, which has no live traffic.
-
 ## Tech stack
 
-- **Backend:** Python 3.11, FastAPI, WebSockets
-- **Networking:** scapy (ARP, ICMP, packet sniffing), python-nmap, ip-api.com for geolocation
-- **Frontend:** React 18, Vite, D3.js (topology + world map), Recharts (traffic charts)
-- **Deployment:** Docker Compose
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.11, FastAPI, uvicorn, WebSockets |
+| Networking | Scapy (ARP, ICMP, sniffing), python-nmap, sockets, ip-api.com |
+| Frontend | React 18, Vite, React Router, D3.js (graph + world map), Recharts, Axios |
+| Delivery | Docker Compose, nginx (serves the production React build) |
 
-## Project layout
+## Configuration
 
-```
-NetPulse/
-├── backend/
-│   ├── main.py              # FastAPI app + routes + WebSocket
-│   ├── scanner.py           # ARP network discovery (ping-sweep fallback)
-│   ├── port_scanner.py      # nmap top-100 port scan
-│   ├── traceroute.py        # scapy traceroute + ip-api.com geolocation
-│   ├── traffic_monitor.py   # scapy packet sniffer and stats
-│   ├── utils.py             # shared helpers
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/
-│   ├── src/
-│   │   ├── components/      # TopologyGraph, TrafficChart, TracerouteMap, PortScanner, DeviceTable, Sidebar
-│   │   ├── pages/           # Dashboard, Topology, TraceroutePage, PortScanPage
-│   │   ├── context/         # Shared network-scan and live-traffic state
-│   │   ├── hooks/           # useWebSocket, useElapsed
-│   │   ├── api.js           # Axios client for the backend
-│   │   └── index.css        # Design system (CSS variables)
-│   ├── Dockerfile           # Node 20 build → nginx
-│   └── nginx.conf
-├── docs/                    # README screenshots and demo GIF
-├── docker-compose.yml
-├── run.py                   # One-command launcher (backend + frontend)
-└── README.md
-```
+Settings come from `.env` (see [`.env.example`](.env.example)). `docker-compose` reads it automatically, and the backend loads it when run natively. Every value is optional.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SCAN_INTERFACE` | auto-detect | Interface for ARP scans and packet capture (`eth0`, `wlan0`, `Wi-Fi`…). An unknown name logs a warning and falls back to auto-detect. |
+| `MAX_SCAN_THREADS` | `32` | Worker threads for the ping-sweep fallback and reverse-DNS lookups (1–256) |
+| `REACT_APP_API_URL` | `http://localhost:8000` | Where the browser reaches the API. Baked into the frontend build, so rebuild after changing it. |
+| `NETPULSE_SUBNET` | auto-detect | Override the subnet to scan, e.g. `192.168.1.0/24` |
+| `NMAP_PATH` | `PATH`, then default install folders | Full path to the nmap binary |
+| `LOG_LEVEL` | `INFO` | Backend log verbosity |
+
+### Privileges
+
+| Feature | Needs | Without it |
+|---|---|---|
+| ARP scan, Scapy traceroute | root / `CAP_NET_RAW` (Linux, macOS) or Npcap (Windows) | Ping sweep + OS ARP cache; system `traceroute`/`tracert` |
+| Packet capture | Same as above | Returns `503` with an explanation |
+| Port scan | nmap installed | Returns `503` with install instructions |
+
+The Docker backend runs with `network_mode: host` and `NET_RAW`/`NET_ADMIN` capabilities, so all features work out of the box on a Linux host.
 
 ## API
 
 | Method | Path | Body / Query | Returns |
 |---|---|---|---|
-| GET | `/api/health` | — | `{status: "ok", timestamp}` |
-| GET | `/api/scan/network` | `?subnet=192.168.1.0/24` (optional) | `{subnet, method, count, devices: [{ip, mac, hostname, status}]}` |
+| GET | `/api/health` | — | `{status, timestamp}` |
+| GET | `/api/scan/network` | `?subnet=` (optional) | `{subnet, method, devices: [{ip, mac, hostname, status}]}` |
 | POST | `/api/scan/ports` | `{"ip": "192.168.1.1"}` | `{ip, host_state, ports: [{port, protocol, state, service}]}` |
-| POST | `/api/traceroute` | `{"target": "google.com"}` | `{destination_ip, reached, hops: [{hop_number, ip, hostname, rtt_ms, geo: {lat, lon, city, country}}]}` |
-| GET | `/api/traffic` | `?duration=10` (1–120 s) | `{protocol_counts: {TCP, UDP, ICMP, DNS, HTTP, OTHER}, top_ips: [{ip, packet_count}], bandwidth_bps, ...}` |
-| WS | `/ws/traffic` | — | A `traffic_stats` message every 2 s, in the same shape as `/api/traffic` |
+| POST | `/api/traceroute` | `{"target": "google.com"}` | `{destination_ip, reached, hops: [{hop_number, ip, hostname, rtt_ms, geo}]}` |
+| GET | `/api/traffic` | `?duration=10` | `{protocol_counts, top_ips, bandwidth_bps, …}` |
+| WS | `/ws/traffic` | — | A `traffic_stats` message every 2 s |
+| WS | `/ws/traceroute` | send `{"target", "max_hops"}` | `start` → `hop` (one per hop) → `locating` → `done` events |
 
-Interactive docs are at **http://localhost:8000/docs** while the server runs.
+Errors: `400` bad input · `503` missing privileges or tools · `504` timeout.
 
-Error codes: `400` for bad input, `503` when the operation needs privileges or tools that are missing (root, Npcap, nmap), `504` on timeout.
-
-> **Protocol counts:** DNS and HTTP are application-layer tags, so a DNS packet is counted under both `UDP` and `DNS`. HTTP is detected by port (80/8000/8080) or by a request/response line in the payload. HTTPS traffic is encrypted and counts as `TCP` only.
-
-## Running the backend on its own
-
-`python run.py` is the easiest way to start everything. To start only the backend:
-
-```bash
-cd backend
-pip install -r requirements.txt
-python main.py
-```
-
-Then check http://localhost:8000/api/health.
-
-### Privileges and system dependencies
-
-| Feature | Requirement |
-|---|---|
-| ARP scan, scapy traceroute, packet capture | **Linux/macOS:** run as root (`sudo python main.py`) or grant `CAP_NET_RAW`. **Windows:** install [Npcap](https://npcap.com) and run the terminal as Administrator. |
-| Port scan | [nmap](https://nmap.org/download) must be installed. It's found on `PATH`, in the default install folders, or via `NMAP_PATH`. |
-
-The app falls back when it lacks privileges. Network discovery switches to a ping sweep that reads MACs from the OS ARP cache, and traceroute calls the system `tracert`/`traceroute`. Packet capture has no fallback and returns `503`.
-
-### Environment variables (optional, `.env` supported)
-
-| Var | Default | Purpose |
-|---|---|---|
-| `PORT` / `HOST` | `8000` / `0.0.0.0` | Bind address |
-| `NETPULSE_SUBNET` | auto-detected | Subnet to scan |
-| `NETPULSE_IFACE` | scapy default | Interface to sniff on |
-| `NMAP_PATH` | PATH, then default install dirs | Full path to the nmap binary |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
-| `RELOAD` | `false` | uvicorn auto-reload |
-
-## Frontend
-
-| Page | What it shows |
-|---|---|
-| **Dashboard** | Topology graph (left half), live traffic chart and device table (right) |
-| **Topology** | Full force-directed graph. Click a node for details, port scan or traceroute |
-| **Traceroute** | World map with animated hop-to-hop route lines, plus a hop table with RTT |
-| **Port Scanner** | IP input (or pick a discovered device) and a color-coded port table |
-
-Nodes pulse when they appear in the live traffic stream. The network scan runs once on load and is shared across pages; use **Rescan network** to refresh it.
-
-### Run the frontend on its own
-
-`python run.py` starts it for you. To start only the frontend, start the backend first, then:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open **http://localhost:5173**. The API address defaults to `http://localhost:8000`; override it with `VITE_API_URL` in `frontend/.env`.
-
-## Running with Docker Compose
-
-Docker is mainly for deploying on a Linux machine. On Windows/macOS, use `python run.py` instead (see the note below).
-
-```bash
-docker compose up --build
-```
-
-- Frontend: **http://localhost:3000**
-- Backend API: **http://localhost:8000**
-
-The container uses `network_mode: host` and adds `NET_RAW`/`NET_ADMIN` so it can see real interfaces for ARP scans and sniffing. Host networking only works fully on **Linux** hosts. On Docker Desktop (Windows/macOS) the container sees the VM's network, not your LAN.
-
-> **Troubleshooting:** a build may finish suspiciously fast and then fail with `"/app/dist": not found`. That means Docker's build cache is corrupted (this can happen after Docker Desktop hangs). Run `docker builder prune -af` and build again.
-
-## Examples
+<details>
+<summary>Example requests</summary>
 
 ```bash
 curl http://localhost:8000/api/scan/network
@@ -182,19 +147,66 @@ curl -X POST http://localhost:8000/api/traceroute  -H "Content-Type: application
 curl "http://localhost:8000/api/traffic?duration=5"
 ```
 
-WebSocket (in a browser console):
-
 ```js
-const ws = new WebSocket("ws://localhost:8000/ws/traffic");
+// Streaming traceroute from a browser console
+const ws = new WebSocket("ws://localhost:8000/ws/traceroute");
+ws.onopen = () => ws.send(JSON.stringify({ target: "google.com", max_hops: 30 }));
 ws.onmessage = (e) => console.log(JSON.parse(e.data));
 ```
 
-## Legal
+</details>
 
-Only scan networks and hosts you own or are explicitly authorized to test.
+## Project structure
 
-## Roadmap
+```
+NetPulse/
+├── backend/
+│   ├── main.py              # FastAPI app: REST routes + WebSockets
+│   ├── scanner.py           # ARP discovery (ping-sweep fallback)
+│   ├── port_scanner.py      # nmap top-100 port scan
+│   ├── traceroute.py        # streaming TTL traceroute + geolocation
+│   ├── traffic_monitor.py   # Scapy sniffer and live stats
+│   ├── utils.py             # config, interface resolution, helpers
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── components/      # TopologyGraph, TrafficChart, TracerouteMap, PortScanner, Skeleton…
+│   │   ├── pages/           # Dashboard, Topology, Traceroute, Port Scanner
+│   │   ├── context/         # Backend status, network scan, live traffic
+│   │   ├── hooks/           # useWebSocket, useElapsed
+│   │   └── api.js           # REST + WebSocket client
+│   ├── Dockerfile           # Node 20 build → nginx
+│   └── nginx.conf
+├── docs/                    # Demo GIF, video, screenshots
+├── docker-compose.yml
+├── .env.example
+├── run.py                   # One-command native launcher
+└── LICENSE
+```
 
-- [x] Phase 1: FastAPI backend (discovery, ports, traceroute, traffic, live WebSocket)
-- [x] Phase 2: React + D3.js dashboard (topology, traffic charts, traceroute map, port scanner)
-- [ ] Phase 3: Historical metrics and alerting
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Red **Backend offline** banner | Start the backend (`docker-compose up` or `python run.py`). The UI reconnects on its own. |
+| Network scan shows `192.168.65.x` | You're on Docker Desktop, which shows the VM's network. Use `python run.py` for your real LAN. |
+| Live traffic says capture isn't permitted | Run as root (Linux/macOS) or install Npcap (Windows). |
+| Docker build fails with `"/app/dist": not found` after finishing suspiciously fast | Docker's build cache is corrupted. Run `docker builder prune -af` and rebuild. |
+| Port scanner returns `503` | Install nmap, or set `NMAP_PATH`. |
+
+## Contributing
+
+Contributions are welcome!
+
+1. Fork the repo and create a branch: `git checkout -b feature/my-idea`
+2. Run the app locally with `python run.py`
+3. Make sure the frontend builds: `cd frontend && npm run build`
+4. Open a pull request describing what changed and why
+
+Ideas on the roadmap: **LLDP/SNMP** discovery for real switch-to-switch topology, **historical metrics** with latency and packet-loss alerts, IPv6 support, and tests with CI.
+
+Please only scan networks and hosts you own or are explicitly authorized to test.
+
+## License
+
+Released under the [MIT License](LICENSE).

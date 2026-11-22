@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -21,7 +22,7 @@ import port_scanner
 import scanner
 import traceroute as tracer
 import traffic_monitor
-from utils import CapabilityError
+from utils import CapabilityError, scan_interface
 
 load_dotenv()
 
@@ -29,11 +30,16 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(
 log = logging.getLogger("netpulse")
 
 WS_INTERVAL_S = 2.0
-SNIFF_IFACE = os.getenv("NETPULSE_IFACE") or None
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _error_detail(exc: BaseException) -> str:
+    if isinstance(exc, (ValueError, CapabilityError, TimeoutError)):
+        return str(exc)
+    return f"{type(exc).__name__}: {exc}"
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +49,7 @@ class TrafficBroadcaster:
     """Runs one shared sniffer and pushes interval stats to every connected client."""
 
     def __init__(self) -> None:
-        self.monitor = traffic_monitor.LiveTrafficMonitor(iface=SNIFF_IFACE)
+        self.monitor = traffic_monitor.LiveTrafficMonitor(iface=scan_interface())
         self.clients: set[WebSocket] = set()
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
@@ -166,7 +172,7 @@ async def run_traceroute(req: TracerouteRequest):
 
 @app.get("/api/traffic")
 async def traffic(duration: int = Query(10, ge=1, le=120, description="Capture window in seconds")):
-    result = await _run(traffic_monitor.capture, duration, SNIFF_IFACE)
+    result = await _run(traffic_monitor.capture, duration, scan_interface())
     return {"timestamp": _now(), **result}
 
 
@@ -179,8 +185,7 @@ async def ws_traffic(ws: WebSocket):
     try:
         await broadcaster.connect(ws)
     except Exception as exc:
-        msg = str(exc) if isinstance(exc, CapabilityError) else f"{type(exc).__name__}: {exc}"
-        await ws.send_json({"type": "error", "timestamp": _now(), "detail": msg})
+        await ws.send_json({"type": "error", "timestamp": _now(), "detail": _error_detail(exc)})
         await ws.close(code=1011)
         return
     try:
@@ -190,6 +195,56 @@ async def ws_traffic(ws: WebSocket):
         pass
     finally:
         await broadcaster.disconnect(ws)
+
+
+@app.websocket("/ws/traceroute")
+async def ws_traceroute(ws: WebSocket):
+    """Stream a traceroute hop by hop.
+
+    Client sends {"target": "google.com", "max_hops": 30}; server replies with
+    start → hop (one per hop) → locating → done events, or a single error event.
+    """
+    await ws.accept()
+    try:
+        req = await asyncio.wait_for(ws.receive_json(), timeout=10)
+        target = str(req.get("target", "")).strip()
+        max_hops = max(1, min(64, int(req.get("max_hops", 30))))
+        if not target:
+            raise ValueError("target is required")
+    except (asyncio.TimeoutError, ValueError, TypeError, AttributeError) as exc:
+        detail = "No request received" if isinstance(exc, asyncio.TimeoutError) else f"Invalid request: {exc}"
+        await ws.send_json({"type": "error", "timestamp": _now(), "detail": detail})
+        await ws.close(code=1008)
+        return
+    except WebSocketDisconnect:
+        return
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    stop = threading.Event()
+
+    def worker() -> None:
+        # Runs the blocking probes in a thread and hands events back to the event loop.
+        try:
+            for event in tracer.trace_events(target, max_hops, should_stop=stop.is_set):
+                loop.call_soon_threadsafe(queue.put_nowait, event)
+        except Exception as exc:
+            if not isinstance(exc, (ValueError, CapabilityError, TimeoutError)):
+                log.exception("traceroute stream failed")
+            loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "detail": _error_detail(exc)})
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    task = loop.run_in_executor(None, worker)
+    try:
+        while (event := await queue.get()) is not None:
+            await ws.send_json({**event, "timestamp": _now()})
+        await ws.close()
+    except (WebSocketDisconnect, RuntimeError):
+        pass  # client went away mid-trace
+    finally:
+        stop.set()  # stops probing after the current hop
+        await task
 
 
 if __name__ == "__main__":

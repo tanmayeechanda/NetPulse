@@ -879,6 +879,317 @@ a {
   max-width: 980px;
 }
 
+.input.invalid {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+.input.valid:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15);
+}
+.field-hint {
+  margin-top: -6px;
+  font-size: 12px;
+  color: var(--faint);
+}
+.field-hint.error {
+  color: #fca5a5;
+}
+
+/* --------------------------------------------------------------------------
+   Offline banner
+   -------------------------------------------------------------------------- */
+.offline-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 28px;
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.16), rgba(239, 68, 68, 0.06));
+  border-bottom: 1px solid rgba(239, 68, 68, 0.35);
+  border-left: 3px solid var(--red);
+  backdrop-filter: blur(6px);
+  animation: banner-in 0.25s ease-out;
+}
+.offline-banner .dot {
+  flex: none;
+  animation: blink 1.4s ease-in-out infinite;
+}
+.offline-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.offline-text strong {
+  color: #fecaca;
+  font-weight: 600;
+}
+@keyframes banner-in {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Skeleton loaders
+   -------------------------------------------------------------------------- */
+.skeleton {
+  display: block;
+  max-width: 100%;
+  border-radius: 2px;
+  background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.04) 0%,
+      rgba(0, 212, 255, 0.12) 40%,
+      rgba(255, 255, 255, 0.04) 80%
+    )
+    0 0 / 300% 100% var(--surface-2);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+.skeleton.round {
+  border-radius: 50%;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+.skeleton-row td {
+  padding-top: 13px;
+  padding-bottom: 13px;
+}
+.skeleton-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.skeleton-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.skeleton-graph {
+  position: absolute;
+  inset: 12% 14%;
+  pointer-events: none;
+}
+.skeleton-graph svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.skeleton-line {
+  stroke: var(--border-strong);
+  stroke-width: 0.4;
+  stroke-dasharray: 1.5 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.skeleton-graph .node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.overlay-msg.skeleton-caption {
+  place-items: end center;
+  padding-bottom: 54px;
+}
+
+/* --------------------------------------------------------------------------
+   Traceroute progress
+   -------------------------------------------------------------------------- */
+.trace-steps {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  counter-reset: none;
+}
+.trace-step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  padding-right: 12px;
+}
+.trace-step:not(:last-child)::after {
+  /* connector line to the next step */
+  content: "";
+  position: absolute;
+  top: 12px;
+  left: 30px;
+  right: 6px;
+  height: 2px;
+  background: var(--border-strong);
+}
+.trace-step.complete:not(:last-child)::after {
+  background: linear-gradient(90deg, var(--accent), var(--violet));
+}
+.trace-step.active:not(:last-child)::after {
+  background: linear-gradient(90deg, var(--accent) 0%, var(--border-strong) 0%);
+  background: repeating-linear-gradient(90deg, var(--accent) 0 6px, transparent 6px 12px);
+  background-size: 24px 2px;
+  animation: step-flow 0.8s linear infinite;
+  opacity: 0.7;
+}
+@keyframes step-flow {
+  to {
+    background-position: 24px 0;
+  }
+}
+.trace-step-marker {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--faint);
+  font: 600 11px var(--font-mono);
+}
+.trace-step.complete .trace-step-marker {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #03141a;
+}
+.trace-step.active .trace-step-marker {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 0 rgba(0, 212, 255, 0.6);
+  animation: step-pulse 1.4s ease-out infinite;
+}
+@keyframes step-pulse {
+  70% {
+    box-shadow: 0 0 0 8px rgba(0, 212, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 212, 255, 0);
+  }
+}
+.trace-step-text {
+  /* opaque background hides the connector line behind the label */
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 2px 10px 0;
+  background: var(--surface);
+  position: relative;
+  z-index: 1;
+}
+.trace-step-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.trace-step.active .trace-step-label,
+.trace-step.complete .trace-step-label {
+  color: var(--text);
+}
+.trace-step-detail {
+  font: 400 11px var(--font-mono);
+  color: var(--accent);
+}
+.trace-step.complete .trace-step-detail {
+  color: var(--muted);
+}
+
+.hop-row {
+  animation: hop-in 0.35s ease-out;
+}
+@keyframes hop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+    background: var(--accent-dim);
+  }
+}
+.probing-row td {
+  color: var(--accent);
+  border-bottom-style: dashed;
+}
+.probing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 12px var(--font-mono);
+}
+.dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dot-bounce 1s ease-in-out infinite;
+}
+.dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes dot-bounce {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.map-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  overflow: hidden;
+}
+.map-scan {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18%;
+  left: -18%;
+  background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.1), transparent);
+  animation: map-sweep 2.2s ease-in-out infinite;
+}
+@keyframes map-sweep {
+  to {
+    left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .hop-row,
+  .dots i,
+  .map-scan,
+  .trace-step.active .trace-step-marker,
+  .offline-banner {
+    animation: none;
+  }
+}
+
 /* --------------------------------------------------------------------------
    Responsive
    -------------------------------------------------------------------------- */
@@ -945,5 +1256,16 @@ a {
   }
   .stat-value {
     font-size: 16px;
+  }
+  .trace-steps {
+    grid-template-columns: 1fr 1fr;
+    row-gap: 12px;
+  }
+  .trace-step::after {
+    display: none;
+  }
+  .offline-banner {
+    padding: 10px 16px;
+    flex-wrap: wrap;
   }
 }

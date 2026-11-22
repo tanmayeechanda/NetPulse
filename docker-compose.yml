@@ -1,25 +1,38 @@
+# Run everything with:  docker-compose up --build   (or: docker compose up --build)
+#   Frontend → http://localhost:3000
+#   Backend  → http://localhost:8000
+# Settings come from .env (copy .env.example). Every value has a default, so .env is optional.
+
 services:
   backend:
     build: ./backend
     container_name: netpulse-backend
     # Host networking lets scapy see real interfaces for ARP scans and packet capture.
-    # The API is served directly on host port 8000 (a `ports:` mapping is not used with host mode).
+    # The API listens directly on host port 8000 (a `ports:` mapping is not used with host mode).
     network_mode: host
     cap_add:
       - NET_ADMIN
       - NET_RAW
     environment:
-      - LOG_LEVEL=INFO
-      # - NETPULSE_SUBNET=192.168.1.0/24   # override auto-detected subnet
-      # - NETPULSE_IFACE=eth0              # interface to sniff on
+      SCAN_INTERFACE: ${SCAN_INTERFACE:-}         # empty = auto-detect
+      MAX_SCAN_THREADS: ${MAX_SCAN_THREADS:-32}
+      NETPULSE_SUBNET: ${NETPULSE_SUBNET:-}       # empty = auto-detect
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       args:
-        # The browser talks to the API directly, so use an address reachable from your machine.
-        VITE_API_URL: http://localhost:8000
+        # Baked into the React build. The browser calls this URL directly, so it must be
+        # reachable from the machine you open the dashboard on.
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
     container_name: netpulse-frontend
     ports:
       - "3000:80"

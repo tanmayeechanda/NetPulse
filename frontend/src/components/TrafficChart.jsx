@@ -10,8 +10,10 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useBackend } from "../context/BackendContext";
 import { PROTOCOLS, useTraffic } from "../context/TrafficContext";
 import { formatBps, formatNumber } from "../utils/format";
+import { SkeletonChart } from "./Skeleton";
 
 const CYAN = "#00D4FF";
 const VIOLET = "#7C3AED";
@@ -33,6 +35,7 @@ function BandwidthTooltip({ active, payload, label }) {
 /** Live bandwidth area chart + protocol breakdown, fed by /ws/traffic. */
 export default function TrafficChart() {
   const { status, error, latest, history, totals } = useTraffic();
+  const { status: backendStatus } = useBackend();
   const totalPackets = PROTOCOLS.reduce((s, p) => s + totals[p], 0);
   const breakdown = PROTOCOLS.map((p) => ({
     name: p,
@@ -49,6 +52,16 @@ export default function TrafficChart() {
 
       {error && <div className="alert">{error}</div>}
 
+      {!history.length && backendStatus === "offline" ? (
+        <div className="chart-empty muted">Live traffic unavailable while the backend is offline</div>
+      ) : !history.length && !error ? (
+        <>
+          <SkeletonChart height={200} stats={3} />
+          <p className="hint">{status === "open" ? "Waiting for the first 2-second sample…" : "Connecting to live stream…"}</p>
+          <SkeletonChart height={120} stats={0} />
+        </>
+      ) : (
+        <>
       <div className="stat-row">
         <div className="stat">
           <span className="stat-label">Bandwidth</span>
@@ -82,9 +95,7 @@ export default function TrafficChart() {
             </AreaChart>
           </ResponsiveContainer>
         ) : (
-          <div className="chart-empty muted">
-            {status === "open" ? "Waiting for first sample…" : "Connecting to live stream…"}
-          </div>
+          <div className="chart-empty muted">No traffic data</div>
         )}
       </div>
 
@@ -117,6 +128,8 @@ export default function TrafficChart() {
         </BarChart>
       </ResponsiveContainer>
       <p className="hint">DNS and HTTP packets are also counted under UDP/TCP. HTTPS shows as TCP.</p>
+        </>
+      )}
     </section>
   );
 }

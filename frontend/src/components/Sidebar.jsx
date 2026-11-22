@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { API_URL, getHealth } from "../api";
+import { API_URL } from "../api";
+import { useBackend } from "../context/BackendContext";
 import { useTraffic } from "../context/TrafficContext";
 
 const NAV = [
@@ -19,22 +19,9 @@ function Icon({ d }) {
 }
 
 export default function Sidebar() {
-  const [backendUp, setBackendUp] = useState(null);
+  const { status } = useBackend();
+  const backendUp = status === "checking" ? null : status === "online";
   const { status: wsStatus } = useTraffic();
-
-  useEffect(() => {
-    let alive = true;
-    const check = () =>
-      getHealth()
-        .then(() => alive && setBackendUp(true))
-        .catch(() => alive && setBackendUp(false));
-    check();
-    const id = setInterval(check, 10_000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
 
   return (
     <aside className="sidebar">

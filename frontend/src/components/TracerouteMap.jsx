@@ -11,7 +11,7 @@ const GRATICULE = d3.geoGraticule10();
  * SVG world map of traceroute hops. Hops without geo data (private IPs,
  * timeouts) are skipped on the map but still appear in the hop table.
  */
-export default function TracerouteMap({ hops = [], loading }) {
+export default function TracerouteMap({ hops = [], loading, message }) {
   const ref = useRef(null);
   const [width, setWidth] = useState(900);
   const height = Math.round(width * 0.5);
@@ -91,7 +91,12 @@ export default function TracerouteMap({ hops = [], loading }) {
           );
         })}
       </svg>
-      {loading && <div className="overlay-msg">Tracing route… this can take up to a minute</div>}
+      {loading && (
+        <div className="overlay-msg map-loading">
+          <span className="map-scan" aria-hidden="true" />
+          <span>{message || "Tracing route…"}</span>
+        </div>
+      )}
       {!loading && !hops.length && <div className="overlay-msg muted">Enter a target and run a traceroute</div>}
       {!loading && hops.length > 0 && !points.length && (
         <div className="overlay-msg muted">No hops had public geolocation data</div>
